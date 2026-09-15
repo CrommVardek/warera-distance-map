@@ -309,26 +309,6 @@ function BaseMap() {
               />
             </Source>
 
-            <Source id="country-labels" type="geojson" data={layers.countryLabels}>
-              {/* maxzoom matches region-labels' minzoom, so the two hand off
-                  cleanly instead of colliding once regions are visible */}
-              <Layer
-                id="country-labels-symbol"
-                type="symbol"
-                maxzoom={3}
-                layout={{
-                  'text-field': ['get', 'countryName'],
-                  'text-size': ['get', 'textSize'],
-                  'text-font': ['Noto Sans Regular'],
-                }}
-                paint={{
-                  'text-color': '#ffffff',
-                  'text-halo-color': '#000000',
-                  'text-halo-width': 1,
-                }}
-              />
-            </Source>
-
             <Source id="region-labels" type="geojson" data={layers.regionLabels}>
               <Layer
                 id="region-labels-symbol"
