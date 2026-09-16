@@ -74,6 +74,12 @@ function HopDistanceBar({ fromName, toName, travels }: HopDistanceBarProps) {
           </span>
         )}
       </div>
+      {travels > MAX_STAMINA_TRAVELS && (
+        <p className="hop-distance-bar__warning">
+          ⚠️ If the trip costs more stamina than you have, the whole
+          journey is charged {BARILS_PER_TRAVEL} barils per region instead, and no stamina is spent.
+        </p>
+      )}
     </div>
   )
 }

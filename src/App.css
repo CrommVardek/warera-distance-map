@@ -45,6 +45,16 @@
   color: #f1c40f;
 }
 
+/* the bar itself is nowrap, so this sentence needs its own wrapping rules */
+.hop-distance-bar__warning {
+  max-width: 340px;
+  margin: 10px 0 0;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.35;
+  color: rgba(241, 196, 15, 0.85);
+}
+
 .hop-distance-bar__baril-icon {
   box-sizing: border-box;
   width: 28px;
