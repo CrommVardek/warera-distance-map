@@ -56,7 +56,7 @@ function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHist
         <thead>
           <tr>
             <th scope="col" className="distance-histogram__head">
-              Distance
+              Stamina needed
             </th>
             <td />
             <th scope="col" colSpan={2} className="distance-histogram__head">
@@ -74,7 +74,7 @@ function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHist
           {/* where you already stand: no distance, no bar, just its share of the odds */}
           <tr>
             <th scope="row" className="distance-histogram__step">
-              Current
+              Current (0)
             </th>
             <td className="distance-histogram__track" />
             <td className="distance-histogram__count" />
@@ -87,7 +87,7 @@ function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHist
           {counts.map((count, index) => (
             <tr key={index}>
               <th scope="row" className="distance-histogram__step">
-                {index === MAX_STEP ? `${MAX_STEP + 1}+` : index + 1}
+                {(index === MAX_STEP ? `${(MAX_STEP + 1)*10}+` : (index + 1)*10)}
               </th>
               <td className="distance-histogram__track">
                 <div
