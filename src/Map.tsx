@@ -11,6 +11,7 @@ import type {
 import * as topojson from 'topojson-client'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { fetchMapData } from './data/mapData'
+import DistanceHistogram from './DistanceHistogram'
 import HopDistanceBar from './HopDistanceBar'
 
 
@@ -456,6 +457,14 @@ function BaseMap() {
           </>
         )}
       </Map>
+
+      {layers && selectedRegionId && (
+        <DistanceHistogram
+          regionName={regionNameById.get(selectedRegionId) ?? '?'}
+          distances={heatmap.distances}
+          totalRegions={layers.regions.features.length}
+        />
+      )}
 
       {selectedRegionId && hoveredRegionId && hoveredRegionId !== selectedRegionId && (
         <HopDistanceBar

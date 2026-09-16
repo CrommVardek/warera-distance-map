@@ -102,3 +102,85 @@
   height: 19px;
   flex-shrink: 0;
 }
+
+/* Breakdown of how many regions sit at each travel step from the selection.
+   Click-through like the hop bar, so it never eats a click meant for the map. */
+.distance-histogram {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  margin: 0;
+  padding: 12px 14px;
+  background: rgba(11, 28, 51, 0.9);
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.distance-histogram__caption {
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: rgba(226, 232, 214, 0.9);
+}
+
+.distance-histogram__table {
+  border-collapse: separate;
+  border-spacing: 0 2px; /* the surface gap between adjacent bars */
+}
+
+.distance-histogram__head {
+  font-size: 11px;
+  font-weight: 500;
+  text-align: left;
+  color: rgba(226, 232, 214, 0.7);
+}
+
+.distance-histogram__head-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.distance-histogram__crate-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.distance-histogram__step {
+  padding-right: 8px;
+  font-weight: 500;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(226, 232, 214, 0.6);
+}
+
+.distance-histogram__track {
+  width: 120px;
+}
+
+.distance-histogram__bar {
+  height: 12px;
+  border-radius: 0 4px 4px 0;
+  background: #4a90d9;
+}
+
+/* the open-ended 11+ bucket, dimmed so it doesn't read as just another step */
+.distance-histogram__bar--overflow {
+  background: #2f5c85;
+}
+
+.distance-histogram__count {
+  padding-left: 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.distance-histogram__cumulative {
+  padding-left: 6px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: rgba(226, 232, 214, 0.7);
+}
