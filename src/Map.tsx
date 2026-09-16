@@ -387,7 +387,14 @@ function BaseMap() {
                     heatmap.maxHop / 2, '#f1c40f',
                     heatmap.maxHop, '#e74c3c',
                   ],
-                  'fill-opacity': ['case', ['==', ['get', 'hopDistance'], -1], 0, 0.9],
+                  // past the dot threshold the fill also drops to half opacity, so
+                  // the dark ground behind it dulls the colour and the stipple reads
+                  'fill-opacity': [
+                    'case',
+                    ['==', ['get', 'hopDistance'], -1],
+                    0,
+                    ['step', ['get', 'hopDistance'], 0.9, DOTS_MIN_DISTANCE + 1, 0.75],
+                  ],
                 }}
               />
               {/* dot stipple over the far-away regions; denser the further out */}
