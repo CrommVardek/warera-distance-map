@@ -1,6 +1,8 @@
 // Travel cost as the game shows it. A trip within stamina range burns 10
 // stamina per travel and no barils; one beyond it flips over entirely -- the
 // whole journey is re-priced at 2 barils per travel and costs no stamina.
+// The gauge reads as stamina LEFT once you arrive, so a neighbouring region
+// leaves it nearly full and a 10-travel trip drains it to empty.
 const STAMINA_PER_TRAVEL = 10
 const MAX_STAMINA = 100
 const MAX_STAMINA_TRAVELS = MAX_STAMINA / STAMINA_PER_TRAVEL
@@ -9,9 +11,9 @@ const BARIL_ICON_URL = 'https://media.warera.io/images/itemsv2/oil.png?v=1'
 
 function travelCost(travels: number) {
   if (travels > MAX_STAMINA_TRAVELS) {
-    return { stamina: 0, barils: travels * BARILS_PER_TRAVEL }
+    return { staminaLeft: MAX_STAMINA, barils: travels * BARILS_PER_TRAVEL }
   }
-  return { stamina: travels * STAMINA_PER_TRAVEL, barils: 0 }
+  return { staminaLeft: MAX_STAMINA - travels * STAMINA_PER_TRAVEL, barils: 0 }
 }
 
 function StaminaIcon() {
@@ -43,7 +45,7 @@ function HopDistanceBar({ fromName, toName, travels }: HopDistanceBarProps) {
     )
   }
 
-  const { stamina, barils } = travelCost(travels)
+  const { staminaLeft, barils } = travelCost(travels)
 
   return (
     <div className="hop-distance-bar">
@@ -51,11 +53,18 @@ function HopDistanceBar({ fromName, toName, travels }: HopDistanceBarProps) {
         {fromName} → {toName} · {travels} region{travels === 1 ? '' : 's'} away
       </div>
       <div className="hop-distance-bar__costs">
-        <div className="stamina-bar" role="img" aria-label={`${stamina} of ${MAX_STAMINA} stamina`}>
-          <div className="stamina-bar__fill" style={{ width: `${(stamina / MAX_STAMINA) * 100}%` }} />
+        <div
+          className="stamina-bar"
+          role="img"
+          aria-label={`${staminaLeft} of ${MAX_STAMINA} stamina left`}
+        >
+          <div
+            className="stamina-bar__fill"
+            style={{ width: `${(staminaLeft / MAX_STAMINA) * 100}%` }}
+          />
           <div className="stamina-bar__content">
             <StaminaIcon />
-            {stamina}/{MAX_STAMINA}
+            {staminaLeft}/{MAX_STAMINA}
           </div>
         </div>
         {barils > 0 && (
