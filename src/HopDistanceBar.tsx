@@ -1,18 +1,17 @@
-// Travel cost as the game shows it: each travel burns 10 stamina, but stamina
-// tops out at 100 -- past that (i.e. beyond MAX_STAMINA_TRAVELS travels) the
-// overflow is paid in barils instead, 2 per extra travel.
+// Travel cost as the game shows it. A trip within stamina range burns 10
+// stamina per travel and no barils; one beyond it flips over entirely -- the
+// whole journey is re-priced at 2 barils per travel and costs no stamina.
 const STAMINA_PER_TRAVEL = 10
 const MAX_STAMINA = 100
 const MAX_STAMINA_TRAVELS = MAX_STAMINA / STAMINA_PER_TRAVEL
-const BARILS_PER_EXTRA_TRAVEL = 2
+const BARILS_PER_TRAVEL = 2
 const BARIL_ICON_URL = 'https://media.warera.io/images/itemsv2/oil.png?v=1'
 
 function travelCost(travels: number) {
-  const extraTravels = Math.max(0, travels - MAX_STAMINA_TRAVELS)
-  return {
-    stamina: Math.min(travels * STAMINA_PER_TRAVEL, MAX_STAMINA),
-    barils: extraTravels * BARILS_PER_EXTRA_TRAVEL,
+  if (travels > MAX_STAMINA_TRAVELS) {
+    return { stamina: 0, barils: travels * BARILS_PER_TRAVEL }
   }
+  return { stamina: travels * STAMINA_PER_TRAVEL, barils: 0 }
 }
 
 function StaminaIcon() {
