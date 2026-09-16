@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Map, { Layer, Source } from 'react-map-gl/maplibre'
 import type {
   DataDrivenPropertyValueSpecification,
+  ExpressionSpecification,
+  FillLayerSpecification,
+  LineLayerSpecification,
   Map as MapLibreMap,
   MapLayerMouseEvent,
   MapLibreEvent,
@@ -48,6 +51,19 @@ const DOTS_LEVELS = [
 
 const dotsImageId = (index: number) => `dots-${index}`
 
+// Regions inside the threshold get this fully transparent tile rather than a
+// data-driven fill-opacity. Every data-driven paint property costs a per-vertex
+// GPU buffer that must be recomputed and re-uploaded on each selection, and the
+// regions source has ~181k vertices, so dropping one is worth a 1px image.
+const DOTS_BLANK_ID = 'dots-blank'
+
+// Depends on nothing, so it is hoisted: a fresh object here would make
+// react-map-gl deep-compare it on every render.
+const HIGHLIGHT_PAINT = {
+  'line-color': '#ffffff',
+  'line-width': ['case', ['==', ['get', 'role'], 'start'], 2.5, 1.8],
+} as LineLayerSpecification['paint']
+
 // Two dots per tile on opposite quarter-points, which lays them out as a
 // diagonal lattice rather than a square grid. Each dot is stamped at every
 // wrapped position too, so one straddling a tile edge still tiles seamlessly.
@@ -71,6 +87,9 @@ function createDotsImage(tile: number, radius: number): ImageData {
 }
 
 function registerDotsImages(map: MapLibreMap) {
+  if (!map.hasImage(DOTS_BLANK_ID)) {
+    map.addImage(DOTS_BLANK_ID, { width: 1, height: 1, data: new Uint8Array(4) })
+  }
   DOTS_LEVELS.forEach((level, index) => {
     const id = dotsImageId(index)
     if (map.hasImage(id)) return
@@ -78,13 +97,41 @@ function registerDotsImages(map: MapLibreMap) {
   })
 }
 
-// ['step', hopDistance, 'dots-0', 13, 'dots-1', 15, 'dots-2', ...]
-const DOTS_PATTERN: DataDrivenPropertyValueSpecification<ResolvedImageSpecification> = [
-  'step',
-  ['get', 'hopDistance'],
-  dotsImageId(0),
-  ...DOTS_LEVELS.slice(1).flatMap((level, index) => [level.minDistance, dotsImageId(index + 1)]),
-] as unknown as DataDrivenPropertyValueSpecification<ResolvedImageSpecification>
+// ['step', <hop distance>, 'dots-blank', 11, 'dots-0', 12, 'dots-1', ...]
+function dotsPattern(hopDistance: ExpressionSpecification) {
+  return [
+    'step',
+    hopDistance,
+    DOTS_BLANK_ID,
+    ...DOTS_LEVELS.flatMap((level, index) => [level.minDistance, dotsImageId(index)]),
+  ] as unknown as DataDrivenPropertyValueSpecification<ResolvedImageSpecification>
+}
+
+// Selecting a region changes a paint expression rather than the source data.
+// Handing <Source> a fresh FeatureCollection makes react-map-gl call setData(),
+// and MapLibre then re-serialises and re-tiles all 726 regions -- 7.3 MB and
+// ~181k coordinates -- on every single click. A `match` compiles to a hash
+// lookup, so resolving a region's distance stays O(1) per feature.
+//
+// Two shape constraints: `match` needs at least one label/output pair, and
+// `interpolate` rejects a constant input, so the nothing-selected case still
+// goes through a match -- one whose label can never equal a real regionId.
+function hopDistanceExpression(
+  distances: globalThis.Map<string, number>,
+  unreachable: number,
+): ExpressionSpecification {
+  const branches: (string | number)[] = []
+  for (const [regionId, distance] of distances) branches.push(regionId, distance)
+  if (branches.length === 0) {
+    return ['match', ['get', 'regionId'], '', -1, -1] as unknown as ExpressionSpecification
+  }
+  return [
+    'match',
+    ['get', 'regionId'],
+    ...branches,
+    unreachable,
+  ] as unknown as ExpressionSpecification
+}
 
 
 interface MapLayers {
@@ -317,35 +364,66 @@ function BaseMap() {
 
   const handleMouseLeave = useCallback(() => setHoveredRegionId(null), [])
 
-  // Annotates every region with its BFS hop-distance ("travels") from the
-  // selected region, so a single data-driven paint expression can render the
-  // whole world as a green (near) -> red (far) heatmap. hopDistance is -1
-  // when nothing is selected, which the fill-opacity expression treats as
-  // "hidden" (the layer then only serves as an invisible click target).
+  // BFS hop-distance ("travels") from the selected region to every other one.
+  // Cheap: 726 nodes, ~2.5k edges.
   const heatmap = useMemo(() => {
     const empty = {
-      data: { type: 'FeatureCollection' as const, features: [] },
       maxHop: 1,
       distances: new globalThis.Map<string, number>(),
       predecessors: new globalThis.Map<string, string>(),
     }
-    if (!layers) return empty
+    if (!layers || !selectedRegionId) return empty
 
-    const bfs = selectedRegionId ? computeHopDistances(selectedRegionId, adjacency) : null
-    const distances = bfs?.distances ?? empty.distances
-    const predecessors = bfs?.predecessors ?? empty.predecessors
-    const maxHop = bfs ? Math.max(1, ...distances.values()) : 1
-
-    const features = layers.regions.features.map((feature) => ({
-      ...feature,
-      properties: {
-        ...feature.properties,
-        hopDistance: bfs ? (distances.get(feature.properties.regionId) ?? maxHop) : -1,
-      },
-    }))
-
-    return { data: { type: 'FeatureCollection' as const, features }, maxHop, distances, predecessors }
+    const { distances, predecessors } = computeHopDistances(selectedRegionId, adjacency)
+    return { maxHop: Math.max(1, ...distances.values()), distances, predecessors }
   }, [layers, selectedRegionId, adjacency])
+
+  // The whole heatmap in one expression: regionId -> travels, with unreachable
+  // regions falling back to maxHop and -1 standing for "nothing selected",
+  // which the fill-opacity expression renders as fully transparent (the layer
+  // then only serves as an invisible click target).
+  const hopDistance = useMemo(
+    () => hopDistanceExpression(heatmap.distances, heatmap.maxHop),
+    [heatmap],
+  )
+
+  // Memoised so their identity is stable: react-map-gl bails out of its paint
+  // diff on `paint !== prevProps.paint`, and without that it deep-walks these
+  // expressions -- the match alone is ~1.5k elements -- on every single render,
+  // hover included.
+  //
+  // Each layer also carries exactly one data-driven paint property rather than
+  // two. A data-driven property is stored as a per-vertex GPU buffer that has to
+  // be recomputed and re-uploaded whenever the expression changes, and this
+  // source has ~181k vertices, so the second one is not free.
+  const regionsFillPaint = useMemo(() => {
+    const ramp = (alpha: number) =>
+      [
+        'interpolate',
+        ['linear'],
+        hopDistance,
+        0, `rgba(46, 204, 113, ${alpha})`,
+        heatmap.maxHop / 2, `rgba(241, 196, 15, ${alpha})`,
+        heatmap.maxHop, `rgba(231, 76, 60, ${alpha})`,
+      ] as unknown as ExpressionSpecification
+
+    return {
+      // the alpha rides inside the colour ramp instead of a second property;
+      // past the dot threshold it drops so the dark ground dulls the colour
+      'fill-color': ['step', hopDistance, ramp(0.9), DOTS_MIN_DISTANCE + 1, ramp(0.75)],
+      // constant, so it costs no per-vertex buffer at all
+      'fill-opacity': selectedRegionId ? 1 : 0,
+    } as FillLayerSpecification['paint']
+  }, [hopDistance, heatmap.maxHop, selectedRegionId])
+
+  const regionsDotsPaint = useMemo(
+    () =>
+      ({
+        'fill-pattern': dotsPattern(hopDistance),
+        'fill-opacity': 0.85,
+      }) as FillLayerSpecification['paint'],
+    [hopDistance],
+  )
 
   // The shortest path (sequence of regionIds) from the selected region to
   // whichever region is currently hovered, reconstructed from the same BFS
@@ -354,6 +432,27 @@ function BaseMap() {
     if (!selectedRegionId || !targetRegionId || targetRegionId === selectedRegionId) return []
     return buildPath(selectedRegionId, targetRegionId, heatmap.predecessors)
   }, [selectedRegionId, targetRegionId, heatmap.predecessors])
+
+  const regionFeatureById = useMemo(() => {
+    const map = new globalThis.Map<string, MapLayers['regions']['features'][number]>()
+    for (const feature of layers?.regions.features ?? []) {
+      map.set(feature.properties.regionId, feature)
+    }
+    return map
+  }, [layers])
+
+  // At most two features, so re-uploading it on every hover is cheap.
+  const highlightData = useMemo<FeatureCollection>(() => {
+    const features = []
+    const start = selectedRegionId ? regionFeatureById.get(selectedRegionId) : undefined
+    const target =
+      targetRegionId && targetRegionId !== selectedRegionId
+        ? regionFeatureById.get(targetRegionId)
+        : undefined
+    if (start) features.push({ ...start, properties: { role: 'start' } })
+    if (target) features.push({ ...target, properties: { role: 'target' } })
+    return { type: 'FeatureCollection', features }
+  }, [selectedRegionId, targetRegionId, regionFeatureById])
 
   const hoverPathLinks = useMemo<FeatureCollection>(() => {
     const features = []
@@ -411,41 +510,20 @@ function BaseMap() {
               />
             </Source>
 
-            <Source id="regions" type="geojson" data={heatmap.data}>
+            <Source id="regions" type="geojson" data={layers.regions}>
               {/* also doubles as the heatmap fill once a region is selected: no
                   minzoom, so the heatmap stays visible even fully zoomed out */}
               <Layer
                 id="regions-fill"
                 type="fill"
-                paint={{
-                  'fill-color': [
-                    'interpolate',
-                    ['linear'],
-                    ['get', 'hopDistance'],
-                    0, '#2ecc71',
-                    heatmap.maxHop / 2, '#f1c40f',
-                    heatmap.maxHop, '#e74c3c',
-                  ],
-                  // past the dot threshold the fill also drops to half opacity, so
-                  // the dark ground behind it dulls the colour and the stipple reads
-                  'fill-opacity': [
-                    'case',
-                    ['==', ['get', 'hopDistance'], -1],
-                    0,
-                    ['step', ['get', 'hopDistance'], 0.9, DOTS_MIN_DISTANCE + 1, 0.75],
-                  ],
-                }}
+                paint={regionsFillPaint}
               />
               {/* dot stipple over the far-away regions; denser the further out */}
               {dotsReady && (
                 <Layer
                   id="regions-dots"
                   type="fill"
-                  filter={['>', ['get', 'hopDistance'], DOTS_MIN_DISTANCE]}
-                  paint={{
-                    'fill-pattern': DOTS_PATTERN,
-                    'fill-opacity': 0.85,
-                  }}
+                  paint={regionsDotsPaint}
                 />
               )}
               <Layer
@@ -458,21 +536,18 @@ function BaseMap() {
                   'line-opacity': selectedRegionId ? 0.8 : 0.6,
                 }}
               />
-              {/* no minzoom, unlike regions-outline: the selection has to stay
-                  visible however far out you zoom */}
+            </Source>
+
+            {/* The start and destination outlines live on their own source of at
+                most two features. Filtering them out of the 726-region source
+                instead would make MapLibre re-bucket every region tile on each
+                hover, which is what made hovering crawl. No minzoom, unlike
+                regions-outline: they stay visible however far out you zoom. */}
+            <Source id="highlight" type="geojson" data={highlightData}>
               <Layer
-                id="regions-selected-outline"
+                id="highlight-outline"
                 type="line"
-                filter={['==', ['get', 'regionId'], selectedRegionId ?? '']}
-                paint={{ 'line-color': '#ffffff', 'line-width': 2.5 }}
-              />
-              {/* the destination -- hovered on desktop, tapped on touch -- gets
-                  the same white outline, a touch thinner than the start's */}
-              <Layer
-                id="regions-target-outline"
-                type="line"
-                filter={['==', ['get', 'regionId'], targetRegionId ?? '']}
-                paint={{ 'line-color': '#ffffff', 'line-width': 1.8 }}
+                paint={HIGHLIGHT_PAINT}
               />
             </Source>
 
