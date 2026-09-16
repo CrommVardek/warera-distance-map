@@ -11,14 +11,84 @@
 .hop-distance-bar {
   position: fixed;
   left: 50%;
-  bottom: 16px;
+  bottom: 20px;
   transform: translateX(-50%);
   background: rgba(11, 28, 51, 0.9);
   color: #fff;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 14px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 16px;
   white-space: nowrap;
   pointer-events: none;
   z-index: 10;
+}
+
+.hop-distance-bar__label {
+  font-size: 14px;
+  font-weight: bold;
+  color: rgba(226, 232, 214, 0.9);
+  margin-bottom: 7px;
+}
+
+.hop-distance-bar__costs {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.hop-distance-bar__barils {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #f1c40f;
+}
+
+.hop-distance-bar__baril-icon {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  border-radius: 5px;
+  background: #6b6b6b;
+  object-fit: contain;
+}
+
+/* Olive gauge styled after the in-game stamina bar: a filled portion over a
+   darker track, with the icon and the value overlaid on top of both. */
+.stamina-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 190px;
+  height: 28px;
+  border: 1px solid #575a24;
+  border-radius: 4px;
+  background: #2f3418;
+  overflow: hidden;
+}
+
+.stamina-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(180deg, #8f9139, #6e7029);
+}
+
+.stamina-bar__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e4e48f;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.stamina-bar__icon {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
 }

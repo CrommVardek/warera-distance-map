@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Map, { Layer, Source } from 'react-map-gl/maplibre'
-import type { MapLayerMouseEvent, StyleSpecification } from 'maplibre-gl'
+import type {
+  DataDrivenPropertyValueSpecification,
+  Map as MapLibreMap,
+  MapLayerMouseEvent,
+  MapLibreEvent,
+  ResolvedImageSpecification,
+  StyleSpecification,
+} from 'maplibre-gl'
 import * as topojson from 'topojson-client'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { fetchMapData } from './data/mapData'
+import HopDistanceBar from './HopDistanceBar'
 
 
 // No raster/vector tile basemap: the game ships its own world landmass and
@@ -16,6 +24,67 @@ const BASE_STYLE: StyleSpecification = {
     { id: 'background', type: 'background', paint: { 'background-color': '#0b1c33' } },
   ],
 }
+
+// Regions further than this many travels also get a dot stipple painted on top
+// of the heatmap gradient, getting denser the further away the region is.
+// MapLibre can't vary a fill-pattern's geometry per feature, so one tile is
+// pre-rendered per density bucket and a `step` expression picks between them.
+// Each bucket shrinks the tile (denser dots) and grows the radius (bigger
+// dots), so distance reads as steadily heavier stipple. Both are css px.
+const DOTS_MIN_DISTANCE = 10
+const DOTS_COLOR = '#3a3a3a'
+const DOTS_PIXEL_RATIO = 2
+const DOTS_LEVELS = [
+  { minDistance: DOTS_MIN_DISTANCE + 1, tile: 9.25, radius: 0.4 },
+  { minDistance: DOTS_MIN_DISTANCE + 2, tile: 9, radius: 0.6 },
+  { minDistance: DOTS_MIN_DISTANCE + 3, tile: 8, radius: 0.75 },
+  { minDistance: DOTS_MIN_DISTANCE + 4, tile: 7.5, radius: 1 },
+  { minDistance: DOTS_MIN_DISTANCE + 5, tile: 7, radius: 1.25 },
+  { minDistance: DOTS_MIN_DISTANCE + 6, tile: 6.5, radius: 1.5 },
+  { minDistance: DOTS_MIN_DISTANCE + 7, tile: 6.25, radius: 1.75 },
+  { minDistance: DOTS_MIN_DISTANCE + 8, tile: 6, radius: 2 },
+]
+
+const dotsImageId = (index: number) => `dots-${index}`
+
+// Two dots per tile on opposite quarter-points, which lays them out as a
+// diagonal lattice rather than a square grid. Each dot is stamped at every
+// wrapped position too, so one straddling a tile edge still tiles seamlessly.
+function createDotsImage(tile: number, radius: number): ImageData {
+  const size = Math.round(tile * DOTS_PIXEL_RATIO)
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = DOTS_COLOR
+  for (const center of [0.25, 0.75]) {
+    for (const dx of [-size, 0, size]) {
+      for (const dy of [-size, 0, size]) {
+        ctx.beginPath()
+        ctx.arc(center * size + dx, center * size + dy, radius * DOTS_PIXEL_RATIO, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }
+  return ctx.getImageData(0, 0, size, size)
+}
+
+function registerDotsImages(map: MapLibreMap) {
+  DOTS_LEVELS.forEach((level, index) => {
+    const id = dotsImageId(index)
+    if (map.hasImage(id)) return
+    map.addImage(id, createDotsImage(level.tile, level.radius), { pixelRatio: DOTS_PIXEL_RATIO })
+  })
+}
+
+// ['step', hopDistance, 'dots-0', 13, 'dots-1', 15, 'dots-2', ...]
+const DOTS_PATTERN: DataDrivenPropertyValueSpecification<ResolvedImageSpecification> = [
+  'step',
+  ['get', 'hopDistance'],
+  dotsImageId(0),
+  ...DOTS_LEVELS.slice(1).flatMap((level, index) => [level.minDistance, dotsImageId(index + 1)]),
+] as unknown as DataDrivenPropertyValueSpecification<ResolvedImageSpecification>
+
 
 interface MapLayers {
   lands: FeatureCollection
@@ -88,10 +157,33 @@ function pointsToFeatureCollection(geometryCollection: RawPointGeometryCollectio
   }
 }
 
+// The selected region is the whole app state, so it lives in the query string:
+// ?region=<regionId> makes a heatmap shareable and survives a reload. There is
+// no router here, so this pokes at history directly.
+const REGION_PARAM = 'region'
+
+function readRegionFromUrl() {
+  return new URLSearchParams(window.location.search).get(REGION_PARAM)
+}
+
+function writeRegionToUrl(regionId: string | null, { replace = false } = {}) {
+  const url = new URL(window.location.href)
+  if (regionId) url.searchParams.set(REGION_PARAM, regionId)
+  else url.searchParams.delete(REGION_PARAM)
+  if (replace) window.history.replaceState(null, '', url)
+  else window.history.pushState(null, '', url)
+}
+
 function BaseMap() {
   const [layers, setLayers] = useState<MapLayers | null>(null)
-  const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null)
+  const [requestedRegionId, setRequestedRegionId] = useState<string | null>(readRegionFromUrl)
   const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null)
+  const [dotsReady, setDotsReady] = useState(false)
+
+  const handleLoad = useCallback((event: MapLibreEvent) => {
+    registerDotsImages(event.target)
+    setDotsReady(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -121,6 +213,13 @@ function BaseMap() {
     }
   }, [])
 
+  // Back/forward move through previously selected regions.
+  useEffect(() => {
+    const syncFromUrl = () => setRequestedRegionId(readRegionFromUrl())
+    window.addEventListener('popstate', syncFromUrl)
+    return () => window.removeEventListener('popstate', syncFromUrl)
+  }, [])
+
   const regionNameById = useMemo(() => {
     const map = new globalThis.Map<string, string>()
     for (const feature of layers?.regionLabels.features ?? []) {
@@ -137,6 +236,18 @@ function BaseMap() {
     return map
   }, [layers])
 
+  // A ?region= pointing at something this map doesn't have would otherwise BFS
+  // from a phantom node and paint every region as unreachable, so it is dropped
+  // rather than selected -- both here and (once the data is in) from the url.
+  const selectedRegionId =
+    requestedRegionId && layers && !adjacency.has(requestedRegionId) ? null : requestedRegionId
+
+  useEffect(() => {
+    if (!layers || !requestedRegionId || adjacency.has(requestedRegionId)) return
+    console.warn('Unknown region in url, ignoring:', requestedRegionId)
+    writeRegionToUrl(null, { replace: true })
+  }, [layers, requestedRegionId, adjacency])
+
   const positionById = useMemo(() => {
     const map = new globalThis.Map<string, [number, number]>()
     for (const feature of layers?.regions.features ?? []) {
@@ -149,11 +260,13 @@ function BaseMap() {
     (event: MapLayerMouseEvent) => {
       const regionId = event.features?.[0]?.properties?.regionId as string | undefined
       if (!regionId) {
-        setSelectedRegionId(null)
+        setRequestedRegionId(null)
+        writeRegionToUrl(null)
         return
       }
       console.log(regionNameById.get(regionId) ?? '(unknown region)', regionId)
-      setSelectedRegionId(regionId)
+      setRequestedRegionId(regionId)
+      writeRegionToUrl(regionId)
     },
     [regionNameById],
   )
@@ -223,10 +336,11 @@ function BaseMap() {
         initialViewState={{
           longitude: 10,
           latitude: 20,
-          zoom: 1.2,
+          zoom: 3,
         }}
         style={{ width: '100%', height: '100%' }}
         mapStyle={BASE_STYLE}
+        onLoad={handleLoad}
         interactiveLayerIds={layers ? ['regions-fill'] : []}
         onClick={handleClick}
         onMouseMove={handleHover}
@@ -275,6 +389,18 @@ function BaseMap() {
                   'fill-opacity': ['case', ['==', ['get', 'hopDistance'], -1], 0, 0.9],
                 }}
               />
+              {/* dot stipple over the far-away regions; denser the further out */}
+              {dotsReady && (
+                <Layer
+                  id="regions-dots"
+                  type="fill"
+                  filter={['>', ['get', 'hopDistance'], DOTS_MIN_DISTANCE]}
+                  paint={{
+                    'fill-pattern': DOTS_PATTERN,
+                    'fill-opacity': 0.85,
+                  }}
+                />
+              )}
               <Layer
                 id="regions-outline"
                 type="line"
@@ -285,10 +411,11 @@ function BaseMap() {
                   'line-opacity': selectedRegionId ? 0.8 : 0.6,
                 }}
               />
+              {/* no minzoom, unlike regions-outline: the selection has to stay
+                  visible however far out you zoom */}
               <Layer
                 id="regions-selected-outline"
                 type="line"
-                minzoom={3}
                 filter={['==', ['get', 'regionId'], selectedRegionId ?? '']}
                 paint={{ 'line-color': '#ffffff', 'line-width': 2.5 }}
               />
@@ -313,7 +440,7 @@ function BaseMap() {
               <Layer
                 id="region-labels-symbol"
                 type="symbol"
-                minzoom={3}
+                minzoom={4}
                 layout={{
                   'text-field': ['get', 'name'],
                   'text-size': 11,
@@ -331,11 +458,11 @@ function BaseMap() {
       </Map>
 
       {selectedRegionId && hoveredRegionId && hoveredRegionId !== selectedRegionId && (
-        <div className="hop-distance-bar">
-          {regionNameById.get(selectedRegionId) ?? '?'} → {regionNameById.get(hoveredRegionId) ?? '?'}:{' '}
-          {heatmap.distances.get(hoveredRegionId) ?? '?'} travel
-          {heatmap.distances.get(hoveredRegionId) === 1 ? '' : 's'}
-        </div>
+        <HopDistanceBar
+          fromName={regionNameById.get(selectedRegionId) ?? '?'}
+          toName={regionNameById.get(hoveredRegionId) ?? '?'}
+          travels={heatmap.distances.get(hoveredRegionId)}
+        />
       )}
     </>
   )
