@@ -109,6 +109,10 @@ function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHist
           ))}
         </tbody>
       </table>
+      <p className="distance-histogram__warning">
+        ℹ️ A wooden crate has a 25% chance of spawning each hour, plus your luck. The odds above assume
+        one did spawn: they give how likely it is to be within reach at each distance.
+      </p>
     </figure>
   )
 }

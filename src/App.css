@@ -107,6 +107,7 @@
    Click-through like the hop bar, so it never eats a click meant for the map. */
 .distance-histogram {
   position: fixed;
+  max-width: 460px;
   top: 16px;
   left: 16px;
   margin: 0;
@@ -176,6 +177,14 @@
   padding-left: 10px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.distance-histogram__warning {
+  max-width: 100%;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: white;
 }
 
 .distance-histogram__cumulative {
