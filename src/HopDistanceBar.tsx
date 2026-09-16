@@ -1,19 +1,21 @@
-// Travel cost as the game shows it. A trip within stamina range burns 10
-// stamina per travel and no barils; one beyond it flips over entirely -- the
-// whole journey is re-priced at 2 barils per travel and costs no stamina.
-// The gauge reads as stamina LEFT once you arrive, so a neighbouring region
-// leaves it nearly full and a 10-travel trip drains it to empty.
+// Travel cost as the game shows it. Every travel burns 10 stamina until the
+// bar is empty; the travels that no longer fit cost 2 barils each on top, the
+// stamina still being spent in full. The gauge reads as stamina LEFT once you
+// arrive, so a neighbouring region leaves it nearly full, a 10-travel trip
+// drains it to empty, and anything beyond that stays empty and adds barils.
 const STAMINA_PER_TRAVEL = 10
 const MAX_STAMINA = 100
 const MAX_STAMINA_TRAVELS = MAX_STAMINA / STAMINA_PER_TRAVEL
-const BARILS_PER_TRAVEL = 2
+const BARILS_PER_EXTRA_TRAVEL = 2
 const BARIL_ICON_URL = 'https://media.warera.io/images/itemsv2/oil.png?v=1'
 
 function travelCost(travels: number) {
-  if (travels > MAX_STAMINA_TRAVELS) {
-    return { staminaLeft: MAX_STAMINA, barils: travels * BARILS_PER_TRAVEL }
+  const paidWithStamina = Math.min(travels, MAX_STAMINA_TRAVELS)
+  const extraTravels = travels - paidWithStamina
+  return {
+    staminaLeft: MAX_STAMINA - paidWithStamina * STAMINA_PER_TRAVEL,
+    barils: extraTravels * BARILS_PER_EXTRA_TRAVEL,
   }
-  return { staminaLeft: MAX_STAMINA - travels * STAMINA_PER_TRAVEL, barils: 0 }
 }
 
 function StaminaIcon() {
@@ -76,8 +78,7 @@ function HopDistanceBar({ fromName, toName, travels }: HopDistanceBarProps) {
       </div>
       {travels > MAX_STAMINA_TRAVELS && (
         <p className="hop-distance-bar__warning">
-          ⚠️ If the trip costs more stamina than you have, the whole
-          journey is charged {BARILS_PER_TRAVEL} barils per region instead, and no stamina is spent.
+          ⚠️ Once your stamina is depleted, each further region costs {BARILS_PER_EXTRA_TRAVEL} barils.
         </p>
       )}
     </div>
