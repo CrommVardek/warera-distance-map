@@ -248,3 +248,161 @@
     max-width: none;
   }
 }
+
+/* Account panel: the first interactive overlay, so unlike the read-only panels
+   it keeps its pointer events. Top-right shares the top row with the histogram
+   toggle (top-left) and clears the histogram itself, which starts at 56px. */
+.account-panel {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+}
+
+.account-panel__connect,
+.account-panel__player {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(11, 28, 51, 0.9);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+}
+
+.account-panel__connect {
+  cursor: pointer;
+}
+
+.account-panel__connect:hover {
+  background: rgba(17, 40, 70, 0.95);
+}
+
+.account-panel__nickname {
+  font-weight: 600;
+}
+
+.account-panel__disconnect {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  color: rgba(226, 232, 214, 0.55);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.account-panel__disconnect:hover {
+  color: #fff;
+}
+
+/* showModal() puts this in the top layer, so it needs no z-index of its own. */
+.connect-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  margin: auto;
+  border: none;
+  border-radius: 12px;
+  padding: 24px;
+  background: #0b1c33;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+}
+
+.connect-dialog::backdrop {
+  background: rgba(3, 10, 20, 0.6);
+}
+
+.connect-dialog__form {
+  display: flex;
+  flex-direction: column;
+}
+
+.connect-dialog__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.connect-dialog__hint {
+  margin: 0 0 18px;
+  color: rgba(226, 232, 214, 0.65);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.connect-dialog__label {
+  margin-bottom: 6px;
+  color: rgba(226, 232, 214, 0.65);
+  font-size: 13px;
+}
+
+.connect-dialog__input {
+  border: 1px solid rgba(226, 232, 214, 0.25);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+}
+
+.connect-dialog__input:focus {
+  outline: 2px solid #4a90d9;
+  outline-offset: 1px;
+}
+
+.connect-dialog__error {
+  margin: 12px 0 0;
+  color: #ff8b7a;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.connect-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.connect-dialog__button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.connect-dialog__button--primary {
+  background: #4a90d9;
+  font-weight: 600;
+}
+
+.connect-dialog__button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.connect-dialog__field-hint {
+  margin: 6px 0 0;
+  color: rgba(226, 232, 214, 0.5);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* the second field needs air above it; the first sits under the intro copy */
+.connect-dialog__label + .connect-dialog__input {
+  margin-bottom: 0;
+}
+
+.connect-dialog__field-hint + .connect-dialog__label,
+.connect-dialog__input + .connect-dialog__label {
+  margin-top: 16px;
+}

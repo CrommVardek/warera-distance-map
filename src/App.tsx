@@ -1,4 +1,5 @@
 import BaseMap from './Map'
+import AccountPanel from './account/AccountPanel'
 import './App.css'
 import 'maplibre-gl/dist/maplibre-gl.css';
 import {setWorkerUrl} from 'maplibre-gl';
@@ -8,9 +9,13 @@ setWorkerUrl(workerUrl);
 
 function App() {
   return (
-    <div id="map-container">
-      <BaseMap />
-    </div>
+    <>
+      <div id="map-container">
+        <BaseMap />
+      </div>
+      {/* app chrome rather than map chrome, so it sits outside BaseMap */}
+      <AccountPanel />
+    </>
   )
 }
 
