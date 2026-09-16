@@ -84,4 +84,15 @@ function HopDistanceBar({ fromName, toName, travels }: HopDistanceBarProps) {
   )
 }
 
+// Shown in place of the bar until a start region is picked. The second step
+// differs by input mode, since touch has no hover to read a destination from.
+export function HopDistanceInstructions({ canHover }: { canHover: boolean }) {
+  return (
+    <p className="hop-distance-bar hop-distance-bar--instructions">
+      Select a start region to display its information, then {canHover ? 'hover' : 'click'} on
+      another region to show the distance between them
+    </p>
+  )
+}
+
 export default HopDistanceBar

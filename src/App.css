@@ -23,6 +23,15 @@
   z-index: 10;
 }
 
+/* the bar is nowrap for its compact readout; the instruction sentence is not */
+.hop-distance-bar--instructions {
+  max-width: min(420px, calc(100vw - 48px));
+  margin: 0;
+  white-space: normal;
+  line-height: 1.35;
+  color: rgba(226, 232, 214, 0.75);
+}
+
 .hop-distance-bar__label {
   font-size: 14px;
   font-weight: bold;
@@ -192,4 +201,50 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: rgba(226, 232, 214, 0.7);
+}
+
+/* The histogram is a fixed panel, so on a phone it swallows the map. Under the
+   breakpoint it collapses behind a button; above it, the button is gone and the
+   panel shows regardless of the component's `open` state. */
+.distance-histogram-toggle {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .distance-histogram-toggle {
+    display: block;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 11;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(11, 28, 51, 0.9);
+    color: #fff;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .distance-histogram {
+    top: 56px;
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    padding: 10px 12px;
+  }
+
+  .distance-histogram[data-open='false'] {
+    display: none;
+  }
+
+  /* the bar track is the only flexible column, so it absorbs the squeeze */
+  .distance-histogram__track {
+    width: 60px;
+  }
+
+  .distance-histogram__warning {
+    max-width: none;
+  }
 }

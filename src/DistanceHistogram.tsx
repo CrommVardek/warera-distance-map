@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 // The breakdown is per-step up to MAX_STEP, then one open-ended bucket: past
 // this point the trip is paid in barils anyway, so the exact step stops
@@ -25,6 +25,8 @@ interface DistanceHistogramProps {
 // Table + bars rather than a plain chart: the counts stay readable as a column
 // and double as the accessible view, since the panel itself is click-through.
 function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHistogramProps) {
+  const [open, setOpen] = useState(false)
+
   const counts = useMemo(() => {
     // One bucket per step, plus a final one collecting everything beyond.
     const buckets = new Array<number>(MAX_STEP + 1).fill(0)
@@ -50,70 +52,84 @@ function DistanceHistogram({ regionName, distances, totalRegions }: DistanceHist
   const maxCount = Math.max(1, ...counts)
 
   return (
-    <figure className="distance-histogram">
-      <figcaption className="distance-histogram__caption">Regions around {regionName}</figcaption>
-      <table className="distance-histogram__table">
-        <thead>
-          <tr>
-            <th scope="col" className="distance-histogram__head">
-              Stamina needed
-            </th>
-            <td />
-            <th scope="col" colSpan={2} className="distance-histogram__head">
-              Regions
-            </th>
-            <th scope="col" colSpan={2} className="distance-histogram__head">
-              <span className="distance-histogram__head-label">
-                <img className="distance-histogram__crate-icon" src={CRATE_ICON_URL} alt="" />
-                Wooden crate odds
-              </span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {/* where you already stand: no distance, no bar, just its share of the odds */}
-          <tr>
-            <th scope="row" className="distance-histogram__step">
-              Current (0)
-            </th>
-            <td className="distance-histogram__track" />
-            <td className="distance-histogram__count" />
-            <td className="distance-histogram__cumulative" />
-            <td className="distance-histogram__count">{formatChance(1, totalRegions)}</td>
-            <td className="distance-histogram__cumulative">
-              ({formatChance(1, totalRegions)})
-            </td>
-          </tr>
-          {counts.map((count, index) => (
-            <tr key={index}>
-              <th scope="row" className="distance-histogram__step">
-                {(index === MAX_STEP ? `${(MAX_STEP + 1)*10}+` : (index + 1)*10)}
+    <>
+      {/* The toggle and the collapsed state only exist under the phone
+          breakpoint -- on wider screens CSS hides the button and shows the
+          panel whatever `open` says, so there is no media query in JS. */}
+      <button
+        type="button"
+        className="distance-histogram-toggle"
+        aria-expanded={open}
+        aria-controls="distance-histogram"
+        onClick={() => setOpen((wasOpen) => !wasOpen)}
+      >
+        {open ? 'Hide distances' : 'Distances'}
+      </button>
+      <figure id="distance-histogram" className="distance-histogram" data-open={open}>
+        <figcaption className="distance-histogram__caption">Regions around {regionName}</figcaption>
+        <table className="distance-histogram__table">
+          <thead>
+            <tr>
+              <th scope="col" className="distance-histogram__head">
+                Stamina needed
               </th>
-              <td className="distance-histogram__track">
-                <div
-                  className={
-                    index === MAX_STEP
-                      ? 'distance-histogram__bar distance-histogram__bar--overflow'
-                      : 'distance-histogram__bar'
-                  }
-                  style={{ width: `${(count / maxCount) * 100}%` }}
-                />
-              </td>
-              <td className="distance-histogram__count">{count}</td>
-              <td className="distance-histogram__cumulative">({cumulative[index]})</td>
-              <td className="distance-histogram__count">{formatChance(count, totalRegions)}</td>
+              <td />
+              <th scope="col" colSpan={2} className="distance-histogram__head">
+                Regions
+              </th>
+              <th scope="col" colSpan={2} className="distance-histogram__head">
+                <span className="distance-histogram__head-label">
+                  <img className="distance-histogram__crate-icon" src={CRATE_ICON_URL} alt="" />
+                  Wooden crate odds
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {/* where you already stand: no distance, no bar, just its share of the odds */}
+            <tr>
+              <th scope="row" className="distance-histogram__step">
+                Current (0)
+              </th>
+              <td className="distance-histogram__track" />
+              <td className="distance-histogram__count" />
+              <td className="distance-histogram__cumulative" />
+              <td className="distance-histogram__count">{formatChance(1, totalRegions)}</td>
               <td className="distance-histogram__cumulative">
-                ({formatChance(cumulative[index], totalRegions)})
+                ({formatChance(1, totalRegions)})
               </td>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="distance-histogram__warning">
-        ℹ️ A wooden crate has a 25% chance of spawning each hour, plus your luck. The odds above assume
-        one did spawn: they give how likely it is to be within reach at each distance.
-      </p>
-    </figure>
+            {counts.map((count, index) => (
+              <tr key={index}>
+                <th scope="row" className="distance-histogram__step">
+                  {(index === MAX_STEP ? `${(MAX_STEP + 1)*10}+` : (index + 1)*10)}
+                </th>
+                <td className="distance-histogram__track">
+                  <div
+                    className={
+                      index === MAX_STEP
+                        ? 'distance-histogram__bar distance-histogram__bar--overflow'
+                        : 'distance-histogram__bar'
+                    }
+                    style={{ width: `${(count / maxCount) * 100}%` }}
+                  />
+                </td>
+                <td className="distance-histogram__count">{count}</td>
+                <td className="distance-histogram__cumulative">({cumulative[index]})</td>
+                <td className="distance-histogram__count">{formatChance(count, totalRegions)}</td>
+                <td className="distance-histogram__cumulative">
+                  ({formatChance(cumulative[index], totalRegions)})
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="distance-histogram__warning">
+          ℹ️ A wooden crate has a 25% chance of spawning each hour, plus your luck. The odds above assume
+          one did spawn: they give how likely it is to be within reach at each distance.
+        </p>
+      </figure>
+    </>
   )
 }
 

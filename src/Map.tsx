@@ -12,7 +12,7 @@ import * as topojson from 'topojson-client'
 import type { FeatureCollection, Geometry } from 'geojson'
 import { fetchMapData } from './data/mapData'
 import DistanceHistogram from './DistanceHistogram'
-import HopDistanceBar from './HopDistanceBar'
+import HopDistanceBar, { HopDistanceInstructions } from './HopDistanceBar'
 
 
 // No raster/vector tile basemap: the game ships its own world landmass and
@@ -175,10 +175,29 @@ function writeRegionToUrl(regionId: string | null, { replace = false } = {}) {
   else window.history.pushState(null, '', url)
 }
 
+// Touch devices have no hover, so there is no way to point at a destination
+// without committing to it. `(hover: hover)` is the primary-pointer test the
+// CSS spec defines for exactly this, and it is watched rather than read once so
+// a 2-in-1 switching between trackpad and touch keeps up.
+function useCanHover() {
+  const [canHover, setCanHover] = useState(() => window.matchMedia('(hover: hover)').matches)
+
+  useEffect(() => {
+    const query = window.matchMedia('(hover: hover)')
+    const sync = () => setCanHover(query.matches)
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
+
+  return canHover
+}
+
 function BaseMap() {
   const [layers, setLayers] = useState<MapLayers | null>(null)
   const [requestedRegionId, setRequestedRegionId] = useState<string | null>(readRegionFromUrl)
   const [hoveredRegionId, setHoveredRegionId] = useState<string | null>(null)
+  const [tappedTargetId, setTappedTargetId] = useState<string | null>(null)
+  const canHover = useCanHover()
   const [dotsReady, setDotsReady] = useState(false)
 
   const handleLoad = useCallback((event: MapLibreEvent) => {
@@ -216,7 +235,10 @@ function BaseMap() {
 
   // Back/forward move through previously selected regions.
   useEffect(() => {
-    const syncFromUrl = () => setRequestedRegionId(readRegionFromUrl())
+    const syncFromUrl = () => {
+      setRequestedRegionId(readRegionFromUrl())
+      setTappedTargetId(null)
+    }
     window.addEventListener('popstate', syncFromUrl)
     return () => window.removeEventListener('popstate', syncFromUrl)
   }, [])
@@ -262,19 +284,36 @@ function BaseMap() {
       const regionId = event.features?.[0]?.properties?.regionId as string | undefined
       if (!regionId) {
         setRequestedRegionId(null)
+        setTappedTargetId(null)
         writeRegionToUrl(null)
         return
       }
       console.log(regionNameById.get(regionId) ?? '(unknown region)', regionId)
+
+      // Without hover a tap has to carry both roles: the first picks the start,
+      // the second picks the destination, and a third starts over from there.
+      if (!canHover && selectedRegionId && !tappedTargetId) {
+        if (regionId !== selectedRegionId) setTappedTargetId(regionId)
+        return
+      }
+
+      setTappedTargetId(null)
       setRequestedRegionId(regionId)
       writeRegionToUrl(regionId)
     },
-    [regionNameById],
+    [regionNameById, canHover, selectedRegionId, tappedTargetId],
   )
 
-  const handleHover = useCallback((event: MapLayerMouseEvent) => {
-    setHoveredRegionId((event.features?.[0]?.properties?.regionId as string | undefined) ?? null)
-  }, [])
+  const handleHover = useCallback(
+    (event: MapLayerMouseEvent) => {
+      if (!canHover) return // a tap synthesises mousemove; ignore it
+      setHoveredRegionId((event.features?.[0]?.properties?.regionId as string | undefined) ?? null)
+    },
+    [canHover],
+  )
+
+  // Whichever way the destination was picked, the rest of the map reads it here.
+  const targetRegionId = canHover ? hoveredRegionId : tappedTargetId
 
   const handleMouseLeave = useCallback(() => setHoveredRegionId(null), [])
 
@@ -312,9 +351,9 @@ function BaseMap() {
   // whichever region is currently hovered, reconstructed from the same BFS
   // pass used to paint the heatmap.
   const hoverPath = useMemo(() => {
-    if (!selectedRegionId || !hoveredRegionId || hoveredRegionId === selectedRegionId) return []
-    return buildPath(selectedRegionId, hoveredRegionId, heatmap.predecessors)
-  }, [selectedRegionId, hoveredRegionId, heatmap.predecessors])
+    if (!selectedRegionId || !targetRegionId || targetRegionId === selectedRegionId) return []
+    return buildPath(selectedRegionId, targetRegionId, heatmap.predecessors)
+  }, [selectedRegionId, targetRegionId, heatmap.predecessors])
 
   const hoverPathLinks = useMemo<FeatureCollection>(() => {
     const features = []
@@ -427,6 +466,14 @@ function BaseMap() {
                 filter={['==', ['get', 'regionId'], selectedRegionId ?? '']}
                 paint={{ 'line-color': '#ffffff', 'line-width': 2.5 }}
               />
+              {/* the destination -- hovered on desktop, tapped on touch -- gets
+                  the same white outline, a touch thinner than the start's */}
+              <Layer
+                id="regions-target-outline"
+                type="line"
+                filter={['==', ['get', 'regionId'], targetRegionId ?? '']}
+                paint={{ 'line-color': '#ffffff', 'line-width': 1.8 }}
+              />
             </Source>
 
             <Source id="hover-path" type="geojson" data={hoverPathLinks}>
@@ -473,11 +520,13 @@ function BaseMap() {
         />
       )}
 
-      {selectedRegionId && hoveredRegionId && hoveredRegionId !== selectedRegionId && (
+      {!selectedRegionId && <HopDistanceInstructions canHover={canHover} />}
+
+      {selectedRegionId && targetRegionId && targetRegionId !== selectedRegionId && (
         <HopDistanceBar
           fromName={regionNameById.get(selectedRegionId) ?? '?'}
-          toName={regionNameById.get(hoveredRegionId) ?? '?'}
-          travels={heatmap.distances.get(hoveredRegionId)}
+          toName={regionNameById.get(targetRegionId) ?? '?'}
+          travels={heatmap.distances.get(targetRegionId)}
         />
       )}
     </>
