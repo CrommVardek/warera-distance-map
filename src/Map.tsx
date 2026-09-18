@@ -63,10 +63,12 @@ const dotsImageId = (index: number) => `dots-${index}`
 // regions source has ~181k vertices, so dropping one is worth a 1px image.
 const DOTS_BLANK_ID = 'dots-blank'
 
-// Crate gold and home blue, shared by the route line, its markers and the
-// region outlines so a colour means the same thing wherever it shows up.
+// Crate gold, home blue and a green for where the player stands, shared by the
+// route line, its markers and the region outlines so a colour means the same
+// thing wherever it shows up.
 const ROUTE_CASE_COLOR = '#f1c40f'
 const ROUTE_HOME_COLOR = '#4a90d9'
+const ROUTE_PLAYER_COLOR = '#2ecc71'
 
 // Depends on nothing, so it is hoisted: a fresh object here would make
 // react-map-gl deep-compare it on every render. Same for every route paint
@@ -77,6 +79,7 @@ const HIGHLIGHT_PAINT = {
     ['get', 'role'],
     'home', ROUTE_HOME_COLOR,
     'case', ROUTE_CASE_COLOR,
+    'player', ROUTE_PLAYER_COLOR,
     '#ffffff',
   ],
   'line-width': ['case', ['==', ['get', 'role'], 'start'], 2.5, 1.8],
@@ -114,7 +117,13 @@ const ROUTE_HOME_LEG_PAINT = {
 
 const ROUTE_MARKER_PAINT = {
   'circle-radius': 9,
-  'circle-color': ['match', ['get', 'role'], 'home', ROUTE_HOME_COLOR, ROUTE_CASE_COLOR],
+  'circle-color': [
+    'match',
+    ['get', 'role'],
+    'home', ROUTE_HOME_COLOR,
+    'player', ROUTE_PLAYER_COLOR,
+    ROUTE_CASE_COLOR,
+  ],
   'circle-stroke-color': '#0b1c33',
   'circle-stroke-width': 1.5,
 } as CircleLayerSpecification['paint']
@@ -269,10 +278,12 @@ function writeHomeToCookie(regionId: string | null) {
   document.cookie = `${HOME_COOKIE}=${value}; path=/; max-age=${maxAge}; samesite=lax`
 }
 
-// A planned route kept with the inputs it was planned for, so a changed home
-// or crate list invalidates it during render rather than through an effect.
+// A planned route kept with the inputs it was planned for, so a changed
+// position, home or crate list invalidates it during render rather than
+// through an effect.
 interface PlannedRoute {
-  homeId: string
+  playerId: string
+  homeId: string | null
   caseIds: string[]
   route: Route
 }
@@ -302,6 +313,9 @@ function BaseMap() {
   const canHover = useCanHover()
   const [dotsReady, setDotsReady] = useState(false)
   const [requestedHomeId, setRequestedHomeId] = useState<string | null>(readHomeFromCookie)
+  // Where the player stands right now. Not persisted: it changes with every
+  // trip, unlike home.
+  const [playerId, setPlayerId] = useState<string | null>(null)
   const [caseIds, setCaseIds] = useState<string[]>([])
   const [picking, setPicking] = useState<PickMode>(null)
   const [plan, setPlan] = useState<PlannedRoute | null>(null)
@@ -389,10 +403,12 @@ function BaseMap() {
     writeHomeToCookie(null)
   }, [layers, requestedHomeId, adjacency])
 
-  // A route only describes the home and crates it was planned for, so it is
-  // kept alongside them and read back only while both still match.
+  // A route only describes the position, home and crates it was planned for,
+  // so it is kept alongside them and read back only while all three match.
   const route =
-    plan && plan.homeId === homeId && plan.caseIds === caseIds ? plan.route : null
+    plan && plan.playerId === playerId && plan.homeId === homeId && plan.caseIds === caseIds
+      ? plan.route
+      : null
 
   // Arming a pick takes over the next map click, so there has to be a way out
   // that does not commit to a region.
@@ -421,6 +437,11 @@ function BaseMap() {
       // the heatmap, and a click on the sea disarms rather than committing.
       if (picking) {
         if (!regionId) {
+          setPicking(null)
+          return
+        }
+        if (picking === 'player') {
+          setPlayerId(regionId)
           setPicking(null)
           return
         }
@@ -472,6 +493,11 @@ function BaseMap() {
     [canHover],
   )
 
+  const handleClearPlayer = useCallback(() => {
+    setPlayerId(null)
+    setPicking((mode) => (mode === 'player' ? null : mode))
+  }, [])
+
   const handleClearHome = useCallback(() => {
     setRequestedHomeId(null)
     writeHomeToCookie(null)
@@ -488,10 +514,10 @@ function BaseMap() {
   }, [])
 
   const handlePlanRoute = useCallback(() => {
-    if (!homeId || caseIds.length === 0) return
+    if (!playerId || caseIds.length === 0) return
     setPicking(null)
-    setPlan({ homeId, caseIds, route: planRoute(homeId, caseIds, adjacency) })
-  }, [homeId, caseIds, adjacency])
+    setPlan({ playerId, homeId, caseIds, route: planRoute(playerId, homeId, caseIds, adjacency) })
+  }, [playerId, homeId, caseIds, adjacency])
 
   const regionName = useCallback(
     (regionId: string) => regionNameById.get(regionId) ?? '?',
@@ -580,8 +606,9 @@ function BaseMap() {
     return map
   }, [layers])
 
-  // At most eight features -- start, target, home and five crates -- so
-  // re-uploading it on every hover is cheap.
+  // At most nine features -- start, target, home, position and five crates --
+  // so re-uploading it on every hover is cheap. Pushed least to most telling,
+  // because one region can hold several roles and the last drawn outline wins.
   const highlightData = useMemo<FeatureCollection>(() => {
     const features = []
     const start = selectedRegionId ? regionFeatureById.get(selectedRegionId) : undefined
@@ -593,12 +620,14 @@ function BaseMap() {
     if (target) features.push({ ...target, properties: { role: 'target' } })
     const home = homeId ? regionFeatureById.get(homeId) : undefined
     if (home) features.push({ ...home, properties: { role: 'home' } })
+    const player = playerId ? regionFeatureById.get(playerId) : undefined
+    if (player) features.push({ ...player, properties: { role: 'player' } })
     for (const caseId of caseIds) {
       const crate = regionFeatureById.get(caseId)
       if (crate) features.push({ ...crate, properties: { role: 'case' } })
     }
     return { type: 'FeatureCollection', features }
-  }, [selectedRegionId, targetRegionId, regionFeatureById, homeId, caseIds])
+  }, [selectedRegionId, targetRegionId, regionFeatureById, homeId, playerId, caseIds])
 
   const hoverPathLinks = useMemo<FeatureCollection>(() => {
     const features = []
@@ -620,10 +649,10 @@ function BaseMap() {
   // there would claim a cost the trip does not have.
   const routeLinks = useMemo<FeatureCollection>(() => {
     const features = []
-    if (route && homeId) {
-      let position = homeId
+    if (route && playerId) {
+      let position = playerId
       for (const step of route.steps) {
-        if (step.viaHome) {
+        if (step.viaHome && homeId) {
           const from = positionById.get(position)
           const to = positionById.get(homeId)
           if (from && to) {
@@ -648,37 +677,40 @@ function BaseMap() {
       }
     }
     return { type: 'FeatureCollection', features }
-  }, [route, homeId, positionById])
+  }, [route, playerId, homeId, positionById])
 
-  // Pins for home and every crate, readable at any zoom unlike the region
-  // outlines. Once a route exists each crate wears the order it is collected in.
+  // Pins for home, the player and every crate, readable at any zoom unlike the
+  // region outlines. Once a route exists each crate wears the order it is
+  // collected in. One pin per region, since a crate can sit on the region you
+  // are standing on and you can be standing at home: whichever role says the
+  // most about the region wins, and the panel spells the rest out.
+  //
+  // 'H' and 'P' rather than a house or a pin glyph: the label stack is Noto
+  // Sans and a glyph it is missing renders as nothing at all.
   const routeMarkers = useMemo<FeatureCollection>(() => {
-    const features = []
     const orderByCase = new globalThis.Map<string, number>()
     route?.steps.forEach((step, index) => orderByCase.set(step.caseId, index + 1))
 
-    const homePosition = homeId ? positionById.get(homeId) : undefined
-    if (homePosition) {
-      features.push({
-        type: 'Feature' as const,
-        // 'H' rather than a house glyph: the label stack is Noto Sans and a
-        // glyph it is missing renders as nothing at all.
-        properties: { role: 'home', label: 'H' },
-        geometry: { type: 'Point' as const, coordinates: homePosition },
-      })
-    }
+    const pins = new globalThis.Map<string, { role: string; label: string }>()
+    if (homeId) pins.set(homeId, { role: 'home', label: 'H' })
+    if (playerId) pins.set(playerId, { role: 'player', label: 'P' })
     for (const caseId of caseIds) {
-      const position = positionById.get(caseId)
-      if (!position) continue
       const order = orderByCase.get(caseId)
+      pins.set(caseId, { role: 'case', label: order ? String(order) : '' })
+    }
+
+    const features = []
+    for (const [regionId, properties] of pins) {
+      const position = positionById.get(regionId)
+      if (!position) continue
       features.push({
         type: 'Feature' as const,
-        properties: { role: 'case', label: order ? String(order) : '' },
+        properties,
         geometry: { type: 'Point' as const, coordinates: position },
       })
     }
     return { type: 'FeatureCollection', features }
-  }, [route, homeId, caseIds, positionById])
+  }, [route, homeId, playerId, caseIds, positionById])
 
   return (
     <>
@@ -844,11 +876,13 @@ function BaseMap() {
 
       {layers && (
         <RoutePlanner
+          playerId={playerId}
           homeId={homeId}
           caseIds={caseIds}
           regionName={regionName}
           picking={picking}
           onPick={setPicking}
+          onClearPlayer={handleClearPlayer}
           onClearHome={handleClearHome}
           onRemoveCase={handleRemoveCase}
           onClearCases={handleClearCases}
